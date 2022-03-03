@@ -1,0 +1,7 @@
+PGHOME=/home/miigon/projects/courses/szu_dbpg/pghome
+export PGDATA=$PGHOME/../pgdata
+export PGHOST=$PGDATA
+export PGPORT=5432
+export LD_LIBRARY_PATH=$PGHOME/lib
+export PATH=$PGHOME/bin:$PATH
+
