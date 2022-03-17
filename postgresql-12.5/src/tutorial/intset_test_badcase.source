@@ -1,0 +1,40 @@
+-- ======================================
+-- my implementation of the intset type.
+-- Author: Miigon 2022-03-17
+-- https://github.com/Miigon
+-- ======================================
+
+-- this script is used to test the correctness of `intset` type and it's operators
+-- NOTE: it assumes the intset is implemented as a sorted array.
+
+
+do $$ begin
+RAISE WARNING ' *********** THE FOLLOWING QUERIES SHOULD ALL FAIL (aka. show error instead of rows) *********** ';
+end; $$ LANGUAGE plpgsql;
+
+select intset('{');
+select intset('}');
+select intset('{}}');
+select intset('{}{}');
+select intset('{{}');
+select intset('{,}');
+select intset('{1,}');
+select intset('{1 2 3 4}');
+select intset('1 2 3 4');
+select intset('1,2,3,4');
+select intset('{{1,2,3}');
+select intset('{1,3,2,}');
+select intset('{,1,3,2}');
+select intset('{1,5,6,,3,2}');
+select intset('{1,3,2');
+select intset('1,3,2}');
+select intset('{1,a,2}');
+select intset('{a,1,2}');
+select intset('{-1,3,2}');
+select intset('{3.0}');
+select intset('{1,{3},2}');
+select intset('{1,{3,2}');
+
+do $$ begin
+RAISE WARNING ' *********** THE QUERIES ABOVE SHOULD ALL FAIL (aka. show error instead of rows) *********** ';
+end; $$ LANGUAGE plpgsql;

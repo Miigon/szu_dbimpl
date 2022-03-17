@@ -1,0 +1,171 @@
+-- ======================================
+-- my implementation of the intset type.
+-- Author: Miigon 2022-03-17
+-- https://github.com/Miigon
+-- ======================================
+
+-- User defined functions are in intset.c, Note that we declare all of
+-- them as STRICT, so we do not need to cope with NULL inputs in the
+-- C code.  We also mark them IMMUTABLE, since they always return the
+-- same outputs given the same inputs.
+
+-- the input function 'intset_in' takes a null-terminated string (the
+-- textual representation of the type) and turns it into the internal
+-- (in memory) representation.
+
+CREATE FUNCTION intset_in(cstring)
+   RETURNS intset
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+
+-- the output function 'intset_out' takes the internal representation and
+-- converts it into the textual representation.
+
+CREATE FUNCTION intset_out(intset)
+   RETURNS cstring
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+
+-- Note: binary input is optional, but binary representation is usually faster
+-- than textual representation, so it's implemented here. (more efficient I/O)
+
+-- the binary input function 'intset_recv' takes a StringInfo buffer
+-- and turns its contents into the internal representation.
+
+CREATE FUNCTION intset_recv(internal)
+   RETURNS intset
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+
+-- the binary output function 'intset_send' takes the internal representation
+-- and converts it into a (hopefully) platform-independent bytea string.
+
+CREATE FUNCTION intset_send(intset)
+   RETURNS bytea
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+
+
+-- Note: from https://www.postgresql.org/docs/9.5/sql-createtype.html:
+-- The alignment parameter specifies the storage alignment required for the data type.
+-- The allowed values equate to alignment on 1, 2, 4, or 8 byte boundaries.
+-- Note that variable-length types must have an alignment of at least 4,
+-- since they necessarily contain an int4 as their first component.
+CREATE TYPE intset (
+   internallength = VARIABLE, -- intset needs to be variable-length
+   input = intset_in,
+   output = intset_out,
+   receive = intset_recv,
+   send = intset_send,
+   alignment = double
+);
+
+-- Note:
+-- all numeric types: https://www.postgresql.org/docs/9.1/datatype-numeric.html
+-- boolean type: https://www.postgresql.org/docs/9.1/datatype-boolean.html
+
+CREATE FUNCTION intset_contain(integer, intset)
+   RETURNS bool
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+
+CREATE OPERATOR ? (
+   leftarg = integer,
+   rightarg = intset,
+   procedure = intset_contain
+   -- commutator = -- nothing
+);
+-- Note: commutator:
+-- A optimization hint for the planner.
+-- We say that operator A is the commutator of operator B if (x A y) equals (y B x) for all possible input values x, y.
+-- https://www.postgresql.org/docs/8.4/xoper-optimization.html
+-- in this case, intset_contain doesn't really have a commutator
+
+CREATE FUNCTION intset_cardinality(intset)
+   RETURNS integer
+   AS '_OBJWD_/intset'
+   LANGUAGE C IMMUTABLE STRICT;
+   -- Note: not a commutator of anything.
+
+CREATE OPERATOR # (
+   rightarg = intset,
+   procedure = intset_cardinality
+);
+
+CREATE FUNCTION intset_improper_superset(intset, intset) RETURNS bool
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_improper_subset(intset, intset) RETURNS bool
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_equal(intset, intset) RETURNS bool
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_notequal(intset, intset) RETURNS bool
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_intersect(intset, intset) RETURNS intset
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_union(intset, intset) RETURNS intset
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_disjunct(intset, intset) RETURNS intset
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+CREATE FUNCTION intset_subtract(intset, intset) RETURNS intset
+   AS '_OBJWD_/intset' LANGUAGE C IMMUTABLE STRICT;
+
+-- Note: Implementing this isn't required for assignment 1
+--       but since it's so easy, meh, might as well do it.
+CREATE AGGREGATE intset_sum (
+   sfunc = intset_intersect,
+   basetype = intset,
+   stype = intset,
+   initcond = '{}'
+);
+
+-- WARNING: >@ (improper superset) is NOT the negator of @< (improper subset)
+-- since they are both true when leftarg = rightarg
+-- however, they are a pair of commutators.
+
+CREATE OPERATOR >@ (
+   leftarg = intset, rightarg = intset, procedure = intset_improper_superset,
+   commutator = @<
+);
+CREATE OPERATOR @< (
+   leftarg = intset, rightarg = intset, procedure = intset_improper_subset,
+   commutator = >@
+);
+
+-- Note: `restrict` and `join` are selectivity estimator functions that
+-- are used for optimization purposes and makes no sense for >@ and @<.
+-- Restrict: https://www.postgresql.org/docs/current/xoper-optimization.html#id-1.8.3.18.8
+-- Join: https://www.postgresql.org/docs/current/xoper-optimization.html#id-1.8.3.18.9
+
+CREATE OPERATOR = (
+   leftarg = intset, rightarg = intset, procedure = intset_equal,
+   commutator = = ,
+   negator = <> ,
+   restrict = eqsel, join = eqjoinsel
+);
+
+CREATE OPERATOR <> (
+   leftarg = intset, rightarg = intset, procedure = intset_notequal,
+   commutator = <> ,
+   negator = = ,
+   restrict = neqsel, join = neqjoinsel
+);
+
+CREATE OPERATOR && (
+   leftarg = intset, rightarg = intset, procedure = intset_intersect,
+   commutator = &&
+);
+CREATE OPERATOR || (
+   leftarg = intset, rightarg = intset, procedure = intset_union,
+   commutator = ||
+);
+CREATE OPERATOR !! (
+   leftarg = intset, rightarg = intset, procedure = intset_disjunct,
+   commutator = !!
+);
+CREATE OPERATOR - (
+   leftarg = intset, rightarg = intset, procedure = intset_subtract
+   -- no commutator.
+);
+
+-- TODO_MAYBE: implement GiST index support (might be too ambitious?)
+-- https://www.postgresql.org/docs/current/gist-extensibility.html
