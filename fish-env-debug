@@ -1,4 +1,4 @@
-set -l PGHOME ~/projects/courses/szu_dbpg/pghome
+set -gx PGHOME ~/projects/courses/szu_dbpg/pghome
 set -gx PGDATA $PGHOME/../pgdata
 set -gx PGHOST 127.0.0.1
 set -gx PGPORT 5432
