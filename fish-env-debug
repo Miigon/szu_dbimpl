@@ -1,7 +1,7 @@
-set -gx PGHOME ~/projects/courses/szu_dbpg/pghome
+set -gx PGHOME ~/projects/courses/szu_dbimpl/pghome
 set -gx PGDATA $PGHOME/../pgdata
 set -gx PGHOST 127.0.0.1
 set -gx PGPORT 5432
 set -gx LD_LIBRARY_PATH $PGHOME/lib
-set -gx PATH $PGHOME/bin:$PATH
+set -gx -a PATH $PGHOME/bin
 
