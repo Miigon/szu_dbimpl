@@ -231,7 +231,7 @@ PG_FUNCTION_INFO_V1(intset_out);
 
 Datum
 intset_out(PG_FUNCTION_ARGS) {
-	intset_ptr iset = (intset_ptr)PG_GETARG_POINTER(0);
+	intset_ptr iset = (intset_ptr)PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
 	char *result;
 
 	uint32_t cardi = ISET_CARDI(iset);
@@ -277,7 +277,7 @@ PG_FUNCTION_INFO_V1(intset_recv);
 
 Datum
 intset_recv(PG_FUNCTION_ARGS) {
-	StringInfo buf = (StringInfo) PG_GETARG_POINTER(0);
+	StringInfo buf = (StringInfo) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
 	intset_ptr result;
 
 	uint32_t cardi = pq_getmsgint(buf, 4);
@@ -299,7 +299,7 @@ Datum
 intset_send(PG_FUNCTION_ARGS) {
 	StringInfoData buf;
 	
-	intset_ptr iset = (intset_ptr) PG_GETARG_POINTER(0);
+	intset_ptr iset = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
 	uint32_t cardi = ISET_CARDI(iset);
 	eintset_t *arr = ISET_ARR(iset);
 
@@ -318,7 +318,7 @@ PG_FUNCTION_INFO_V1(intset_contain);
 Datum
 intset_contain(PG_FUNCTION_ARGS) {
 	eintset_t a = PG_GETARG_UINT32(0);
-	intset_ptr iset = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr iset = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	uint32_t cardi = ISET_CARDI(iset);
 	eintset_t *arr = ISET_ARR(iset);
 	
@@ -346,7 +346,7 @@ PG_FUNCTION_INFO_V1(intset_cardinality);
 Datum
 intset_cardinality(PG_FUNCTION_ARGS)
 {
-	intset_ptr iset = (intset_ptr) PG_GETARG_POINTER(0);
+	intset_ptr iset = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
 
 	PG_RETURN_UINT32(ISET_CARDI(iset));
 }
@@ -382,8 +382,8 @@ int intset_improper_superset_internal(intset_ptr a, intset_ptr b) {
 
 Datum
 intset_improper_superset(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 
 	PG_RETURN_BOOL(intset_improper_superset_internal(a, b));
 }
@@ -392,8 +392,8 @@ PG_FUNCTION_INFO_V1(intset_improper_subset);
 
 Datum
 intset_improper_subset(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 
 	PG_RETURN_BOOL(intset_improper_superset_internal(b, a));
 }
@@ -410,8 +410,8 @@ bool intset_equal_internal(intset_ptr a, intset_ptr b) {
 
 Datum
 intset_equal(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	PG_RETURN_BOOL(intset_equal_internal(a, b));
 }
 
@@ -419,8 +419,8 @@ PG_FUNCTION_INFO_V1(intset_notequal);
 
 Datum
 intset_notequal(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	PG_RETURN_BOOL(!intset_equal_internal(a, b));
 }
 
@@ -428,8 +428,8 @@ PG_FUNCTION_INFO_V1(intset_intersect);
 
 Datum
 intset_intersect(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	intset_ptr result;
 	eintset_t *arr_a = ISET_ARR(a);
 	eintset_t *arr_b = ISET_ARR(b);
@@ -467,8 +467,8 @@ PG_FUNCTION_INFO_V1(intset_union);
 
 Datum
 intset_union(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	intset_ptr result;
 	eintset_t *arr_a = ISET_ARR(a);
 	eintset_t *arr_b = ISET_ARR(b);
@@ -520,8 +520,8 @@ PG_FUNCTION_INFO_V1(intset_disjunct);
 
 Datum
 intset_disjunct(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	intset_ptr result;
 	eintset_t *arr_a = ISET_ARR(a);
 	eintset_t *arr_b = ISET_ARR(b);
@@ -574,8 +574,8 @@ PG_FUNCTION_INFO_V1(intset_subtract);
 
 Datum
 intset_subtract(PG_FUNCTION_ARGS) {
-	intset_ptr a = (intset_ptr) PG_GETARG_POINTER(0);
-	intset_ptr b = (intset_ptr) PG_GETARG_POINTER(1);
+	intset_ptr a = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(0));
+	intset_ptr b = (intset_ptr) PG_DETOAST_DATUM(PG_GETARG_POINTER(1));
 	intset_ptr result;
 	eintset_t *arr_a = ISET_ARR(a);
 	eintset_t *arr_b = ISET_ARR(b);

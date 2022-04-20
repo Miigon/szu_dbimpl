@@ -53,6 +53,7 @@ CREATE FUNCTION intset_send(intset)
 -- since they necessarily contain an int4 as their first component.
 CREATE TYPE intset (
    internallength = VARIABLE, -- intset needs to be variable-length
+   storage = external,
    input = intset_in,
    output = intset_out,
    receive = intset_recv,
