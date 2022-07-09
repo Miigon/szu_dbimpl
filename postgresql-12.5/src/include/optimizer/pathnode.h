@@ -172,6 +172,18 @@ extern HashPath *create_hashjoin_path(PlannerInfo *root,
 									  Relids required_outer,
 									  List *hashclauses);
 
+extern HashPath *create_symhashjoin_path(PlannerInfo *root,
+									  RelOptInfo *joinrel,
+									  JoinType jointype,
+									  JoinCostWorkspace *workspace,
+									  JoinPathExtraData *extra,
+									  Path *outer_path,
+									  Path *inner_path,
+									  bool parallel_hash,
+									  List *restrict_clauses,
+									  Relids required_outer,
+									  List *hashclauses);
+
 extern ProjectionPath *create_projection_path(PlannerInfo *root,
 											  RelOptInfo *rel,
 											  Path *subpath,

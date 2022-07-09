@@ -152,6 +152,16 @@ extern void initial_cost_hashjoin(PlannerInfo *root,
 extern void final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 								JoinCostWorkspace *workspace,
 								JoinPathExtraData *extra);
+extern void initial_cost_symhashjoin(PlannerInfo *root,
+								  JoinCostWorkspace *workspace,
+								  JoinType jointype,
+								  List *hashclauses,
+								  Path *outer_path, Path *inner_path,
+								  JoinPathExtraData *extra,
+								  bool parallel_hash);
+extern void final_cost_symhashjoin (PlannerInfo *root, HashPath *path,
+								JoinCostWorkspace *workspace,
+								JoinPathExtraData *extra);
 extern void cost_gather(GatherPath *path, PlannerInfo *root,
 						RelOptInfo *baserel, ParamPathInfo *param_info, double *rows);
 extern void cost_gather_merge(GatherMergePath *path, PlannerInfo *root,

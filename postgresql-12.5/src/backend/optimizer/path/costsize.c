@@ -3610,6 +3610,428 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 }
 
 
+void
+initial_cost_symhashjoin(PlannerInfo *root, JoinCostWorkspace *workspace,
+					  JoinType jointype,
+					  List *hashclauses,
+					  Path *outer_path, Path *inner_path,
+					  JoinPathExtraData *extra,
+					  bool parallel_hash)
+{
+	Cost		startup_cost = 0;
+	Cost		run_cost = 0;
+	double		outer_path_rows = outer_path->rows;
+	double		inner_path_rows = inner_path->rows;
+	double		outer_path_rows_total = outer_path_rows;
+	double		inner_path_rows_total = inner_path_rows;
+	double		limit_tuples = root->limit_tuples;
+	double		outer_virtualbuckets;
+	double		inner_virtualbuckets;
+	double		outerbucketsize;
+	double		innerbucketsize;
+	int			num_hashclauses = list_length(hashclauses);
+	int			inner_numbuckets;
+	int			inner_numbatches;
+	int			outer_numbuckets;
+	int			outer_numbatches;
+	int			num_skew_mcvs;
+	size_t		space_allowed;	/* unused */
+
+		
+	ExecChooseHashTableSize(inner_path_rows_total,
+							inner_path->pathtarget->width,
+							false,	/* useskew */
+							parallel_hash,	/* try_combined_work_mem */
+							outer_path->parallel_workers,
+							&space_allowed,
+							&inner_numbuckets,
+							&inner_numbatches,
+							&num_skew_mcvs);
+	
+	ExecChooseHashTableSize(outer_path_rows_total,
+							outer_path->pathtarget->width,
+							false,	/* useskew */
+							parallel_hash,	/* try_combined_work_mem */
+							inner_path->parallel_workers,
+							&space_allowed,
+							&outer_numbuckets,
+							&outer_numbatches,
+							&num_skew_mcvs);
+
+	/* cost of source data */
+	// // startup_cost: 第一条tuple返回前需要的消耗；run_cost：开始返回到结束返回需要的消耗
+	// startup_cost += outer_path->startup_cost;
+	// run_cost += outer_path->total_cost - outer_path->startup_cost;
+	// // 一开始就要全部的innertuple，因此使用total_cost
+	// startup_cost += inner_path->total_cost;
+
+	// 更改后inner与outer相同，startup不需要全部tuple
+	startup_cost += outer_path->startup_cost;
+	startup_cost += inner_path->startup_cost;
+
+	run_cost += outer_path->total_cost - outer_path->startup_cost;
+	run_cost += inner_path->total_cost - inner_path->startup_cost;
+
+
+	/*
+	 * Cost of computing hash function: must do it once per input tuple. We
+	 * charge one cpu_operator_cost for each column's hash function.  Also,
+	 * tack on one cpu_tuple_cost per inner row, to model the costs of
+	 * inserting the row into the hashtable.
+	 *
+	 * XXX when a hashclause is more complex than a single operator, we really
+	 * should charge the extra eval costs of the left or right side, as
+	 * appropriate, here.  This seems more work than it's worth at the moment.
+	 */
+
+	// (计算hashfunction开销 + 插入hashtable开销)*tuple数量
+	// startup_cost += (cpu_operator_cost * num_hashclauses + cpu_tuple_cost)
+	// 	* inner_path_rows;
+	// run_cost += cpu_operator_cost * num_hashclauses * outer_path_rows;
+
+	// hashfunction需要计算两次，插入一次探测一次，因此*2
+	run_cost += (cpu_operator_cost * num_hashclauses * 2 + cpu_tuple_cost)
+		* inner_path_rows;
+	run_cost += (cpu_operator_cost * num_hashclauses * 2 + cpu_tuple_cost)
+		* outer_path_rows;
+
+	/*
+	 * If this is a parallel hash build, then the value we have for
+	 * inner_rows_total currently refers only to the rows returned by each
+	 * participant.  For shared hash table size estimation, we need the total
+	 * number, so we need to undo the division.
+	 */
+	// if (parallel_hash)
+	// 	inner_path_rows_total *= get_parallel_divisor(inner_path);
+
+	/*
+	 * Get hash table size that executor would use for inner relation.
+	 *
+	 * XXX for the moment, always assume that skew optimization will be
+	 * performed.  As long as SKEW_WORK_MEM_PERCENT is small, it's not worth
+	 * trying to determine that for sure.
+	 *
+	 * XXX at some point it might be interesting to try to account for skew
+	 * optimization in the cost estimate, but for now, we don't.
+	 */
+	// ExecChooseHashTableSize(inner_path_rows_total,
+	// 						inner_path->pathtarget->width,
+	// 						true,	/* useskew */
+	// 						parallel_hash,	/* try_combined_work_mem */
+	// 						outer_path->parallel_workers,
+	// 						&space_allowed,
+	// 						&numbuckets,
+	// 						&numbatches,
+	// 						&num_skew_mcvs);
+	
+
+	/*
+	 * If inner relation is too big then we will need to "batch" the join,
+	 * which implies writing and reading most of the tuples to disk an extra
+	 * time.  Charge seq_page_cost per page, since the I/O should be nice and
+	 * sequential.  Writing the inner rel counts as startup cost, all the rest
+	 * as run cost.
+	 */
+	// if (numbatches > 1)
+	// {
+	// 	double		outerpages = page_size(outer_path_rows,
+	// 									   outer_path->pathtarget->width);
+	// 	double		innerpages = page_size(inner_path_rows,
+	// 									   inner_path->pathtarget->width);
+
+	// 	startup_cost += seq_page_cost * innerpages;
+	// 	run_cost += seq_page_cost * (innerpages + 2 * outerpages);
+	// }
+
+	/* CPU costs left for later */
+
+	/* Public result fields */
+	workspace->startup_cost = startup_cost;
+	workspace->total_cost = startup_cost + run_cost;
+	/* Save private data for final_cost_hashjoin */
+	workspace->run_cost = run_cost;
+	workspace->outer_numbatches = outer_numbatches;
+	workspace->outer_numbuckets = outer_numbuckets;
+	workspace->inner_numbatches = inner_numbatches;
+	workspace->inner_numbuckets = inner_numbuckets;
+	workspace->inner_rows_total = inner_path_rows_total;
+	workspace->outer_rows_total = outer_path_rows_total;
+}
+
+void
+final_cost_symhashjoin(PlannerInfo *root, HashPath *path,
+					JoinCostWorkspace *workspace,
+					JoinPathExtraData *extra)
+{
+	Path	   *outer_path = path->jpath.outerjoinpath;
+	Path	   *inner_path = path->jpath.innerjoinpath;
+	double		outer_path_rows = outer_path->rows;
+	double		inner_path_rows = inner_path->rows;
+	double		inner_path_rows_total = workspace->inner_rows_total;
+	double		outer_path_rows_total = workspace->outer_rows_total;
+	double		limit_tuples = root->limit_tuples;
+	List	   *hashclauses = path->path_hashclauses;
+	Cost		startup_cost = workspace->startup_cost;
+	Cost		run_cost = workspace->run_cost;
+	int			outer_numbuckets = workspace->outer_numbuckets;
+	int			outer_numbatches = workspace->outer_numbatches;
+	int			inner_numbuckets = workspace->inner_numbuckets;
+	int			inner_numbatches = workspace->inner_numbatches;
+	Cost		cpu_per_tuple;
+	QualCost	hash_qual_cost;
+	QualCost	qp_qual_cost;
+	double		hashjointuples;
+	double		outer_virtualbuckets;
+	double		inner_virtualbuckets;
+	Selectivity outerbucketsize;
+	Selectivity outermcvfreq;
+	Selectivity innerbucketsize;
+	Selectivity innermcvfreq;
+	ListCell   *hcl;
+
+	/* Mark the path with the correct row estimate */
+	if (path->jpath.path.param_info)
+		path->jpath.path.rows = path->jpath.path.param_info->ppi_rows;
+	else
+		path->jpath.path.rows = path->jpath.path.parent->rows;
+
+	/* For partial paths, scale row estimate. */
+	if (path->jpath.path.parallel_workers > 0)
+	{
+		double		parallel_divisor = get_parallel_divisor(&path->jpath.path);
+
+		path->jpath.path.rows =
+			clamp_row_est(path->jpath.path.rows / parallel_divisor);
+	}
+
+	/*
+	 * We could include disable_cost in the preliminary estimate, but that
+	 * would amount to optimizing for the case where the join method is
+	 * disabled, which doesn't seem like the way to bet.
+	 */
+	if (!enable_hashjoin)
+		startup_cost += disable_cost;
+
+	/* mark the path with estimated # of batches */
+	//先不处理，以后看情况
+	path->num_batches = inner_numbatches;
+
+	/* store the total number of tuples (sum of partial row estimates) */
+	path->inner_rows_total = inner_path_rows_total;
+
+	/* and compute the number of "virtual" buckets in the whole join */
+	// virtualbuckets = (double) numbuckets * (double) numbatches;
+	inner_virtualbuckets = (double) inner_numbuckets * (double) inner_numbatches;
+	outer_virtualbuckets = (double) outer_numbuckets * (double) outer_numbatches;
+
+	/*
+	 * Determine bucketsize fraction and MCV frequency for the inner relation.
+	 * We use the smallest bucketsize or MCV frequency estimated for any
+	 * individual hashclause; this is undoubtedly conservative.
+	 *
+	 * BUT: if inner relation has been unique-ified, we can assume it's good
+	 * for hashing.  This is important both because it's the right answer, and
+	 * because we avoid contaminating the cache with a value that's wrong for
+	 * non-unique-ified paths.
+	 */
+
+	
+	innerbucketsize = 1.0 / inner_virtualbuckets;
+	innermcvfreq = 0.0;
+	outerbucketsize = 1.0 / outer_virtualbuckets;
+	outermcvfreq = 0.0;
+
+	// if (IsA(inner_path, UniquePath))
+	// {
+	// 	innerbucketsize = 1.0 / virtualbuckets;
+	// 	innermcvfreq = 0.0;
+	// }
+	// else
+	// {
+	// 	innerbucketsize = 1.0;
+	// 	innermcvfreq = 1.0;
+	// 	foreach(hcl, hashclauses)
+	// 	{
+	// 		RestrictInfo *restrictinfo = lfirst_node(RestrictInfo, hcl);
+	// 		Selectivity thisbucketsize;
+	// 		Selectivity thismcvfreq;
+	// 
+	// 		/*
+	// 		 * First we have to figure out which side of the hashjoin clause
+	// 		 * is the inner side.
+	// 		 *
+	// 		 * Since we tend to visit the same clauses over and over when
+	// 		 * planning a large query, we cache the bucket stats estimates in
+	// 		 * the RestrictInfo node to avoid repeated lookups of statistics.
+	// 		 */
+	// 		if (bms_is_subset(restrictinfo->right_relids,
+	// 						  inner_path->parent->relids))
+	// 		{
+	// 			/* righthand side is inner */
+	// 			thisbucketsize = restrictinfo->right_bucketsize;
+	// 			if (thisbucketsize < 0)
+	// 			{
+	// 				/* not cached yet */
+	// 				estimate_hash_bucket_stats(root,
+	// 										   get_rightop(restrictinfo->clause),
+	// 										   virtualbuckets,
+	// 										   &restrictinfo->right_mcvfreq,
+	// 										   &restrictinfo->right_bucketsize);
+	// 				thisbucketsize = restrictinfo->right_bucketsize;
+	// 			}
+	// 			thismcvfreq = restrictinfo->right_mcvfreq;
+	// 		}
+	// 		else
+	// 		{
+	// 			Assert(bms_is_subset(restrictinfo->left_relids,
+	// 								 inner_path->parent->relids));
+	// 			/* lefthand side is inner */
+	// 			thisbucketsize = restrictinfo->left_bucketsize;
+	// 			if (thisbucketsize < 0)
+	// 			{
+	// 				/* not cached yet */
+	// 				estimate_hash_bucket_stats(root,
+	// 										   get_leftop(restrictinfo->clause),
+	// 										   virtualbuckets,
+	// 										   &restrictinfo->left_mcvfreq,
+	// 										   &restrictinfo->left_bucketsize);
+	// 				thisbucketsize = restrictinfo->left_bucketsize;
+	// 			}
+	// 			thismcvfreq = restrictinfo->left_mcvfreq;
+	// 		}
+	// 		if (innerbucketsize > thisbucketsize)
+	// 			innerbucketsize = thisbucketsize;
+	// 		if (innermcvfreq > thismcvfreq)
+	// 			innermcvfreq = thismcvfreq;
+	// 	}
+	// }
+	// 
+	// /*
+	//  * If the bucket holding the inner MCV would exceed work_mem, we don't
+	//  * want to hash unless there is really no other alternative, so apply
+	//  * disable_cost.  (The executor normally copes with excessive memory usage
+	//  * by splitting batches, but obviously it cannot separate equal values
+	//  * that way, so it will be unable to drive the batch size below work_mem
+	//  * when this is true.)
+	//  */
+	// if (relation_byte_size(clamp_row_est(inner_path_rows * innermcvfreq),
+	// 					   inner_path->pathtarget->width) >
+	// 	(work_mem * 1024L))
+	// 	startup_cost += disable_cost;
+
+	/*
+	 * Compute cost of the hashquals and qpquals (other restriction clauses)
+	 * separately.
+	 */
+	cost_qual_eval(&hash_qual_cost, hashclauses, root);
+	cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
+	qp_qual_cost.startup -= hash_qual_cost.startup;
+	qp_qual_cost.per_tuple -= hash_qual_cost.per_tuple;
+
+	/* CPU costs */
+	startup_cost += hash_qual_cost.startup;
+	if(limit_tuples > 0){
+		run_cost += hash_qual_cost.per_tuple * limit_tuples;
+		hashjointuples = limit_tuples;
+	}
+	else{
+		run_cost += hash_qual_cost.per_tuple * outer_path_rows *
+			clamp_row_est(inner_path_rows * innerbucketsize) * 0.5;
+		hashjointuples = approx_tuple_count(root, &path->jpath, hashclauses);
+	}
+
+	// if (path->jpath.jointype == JOIN_SEMI ||
+	// 	path->jpath.jointype == JOIN_ANTI ||
+	// 	extra->inner_unique)
+	// {
+	// 	double		outer_matched_rows;
+	// 	Selectivity inner_scan_frac;
+	// 
+	// 	/*
+	// 	 * With a SEMI or ANTI join, or if the innerrel is known unique, the
+	// 	 * executor will stop after the first match.
+	// 	 *
+	// 	 * For an outer-rel row that has at least one match, we can expect the
+	// 	 * bucket scan to stop after a fraction 1/(match_count+1) of the
+	// 	 * bucket's rows, if the matches are evenly distributed.  Since they
+	// 	 * probably aren't quite evenly distributed, we apply a fuzz factor of
+	// 	 * 2.0 to that fraction.  (If we used a larger fuzz factor, we'd have
+	// 	 * to clamp inner_scan_frac to at most 1.0; but since match_count is
+	// 	 * at least 1, no such clamp is needed now.)
+	// 	 */
+	// 	outer_matched_rows = rint(outer_path_rows * extra->semifactors.outer_match_frac);
+	// 	inner_scan_frac = 2.0 / (extra->semifactors.match_count + 1.0);
+	// 
+	// 	startup_cost += hash_qual_cost.startup;
+	// 	run_cost += hash_qual_cost.per_tuple * outer_matched_rows *
+	// 		clamp_row_est(inner_path_rows * innerbucketsize * inner_scan_frac) * 0.5;
+	// 
+	// 	/*
+	// 	 * For unmatched outer-rel rows, the picture is quite a lot different.
+	// 	 * In the first place, there is no reason to assume that these rows
+	// 	 * preferentially hit heavily-populated buckets; instead assume they
+	// 	 * are uncorrelated with the inner distribution and so they see an
+	// 	 * average bucket size of inner_path_rows / virtualbuckets.  In the
+	// 	 * second place, it seems likely that they will have few if any exact
+	// 	 * hash-code matches and so very few of the tuples in the bucket will
+	// 	 * actually require eval of the hash quals.  We don't have any good
+	// 	 * way to estimate how many will, but for the moment assume that the
+	// 	 * effective cost per bucket entry is one-tenth what it is for
+	// 	 * matchable tuples.
+	// 	 */
+	// 	run_cost += hash_qual_cost.per_tuple *
+	// 		(outer_path_rows - outer_matched_rows) *
+	// 		clamp_row_est(inner_path_rows / virtualbuckets) * 0.05;
+	// 
+	// 	/* Get # of tuples that will pass the basic join */
+	// 	if (path->jpath.jointype == JOIN_ANTI)
+	// 		hashjointuples = outer_path_rows - outer_matched_rows;
+	// 	else
+	// 		hashjointuples = outer_matched_rows;
+	// }
+	// else
+	// {
+	// 	/*
+	// 	 * The number of tuple comparisons needed is the number of outer
+	// 	 * tuples times the typical number of tuples in a hash bucket, which
+	// 	 * is the inner relation size times its bucketsize fraction.  At each
+	// 	 * one, we need to evaluate the hashjoin quals.  But actually,
+	// 	 * charging the full qual eval cost at each tuple is pessimistic,
+	// 	 * since we don't evaluate the quals unless the hash values match
+	// 	 * exactly.  For lack of a better idea, halve the cost estimate to
+	// 	 * allow for that.
+	// 	 */
+	// 	startup_cost += hash_qual_cost.startup;
+	// 	run_cost += hash_qual_cost.per_tuple * outer_path_rows *
+	// 		clamp_row_est(inner_path_rows * innerbucketsize) * 0.5;
+	// 
+	// 	/*
+	// 	 * Get approx # tuples passing the hashquals.  We use
+	// 	 * approx_tuple_count here because we need an estimate done with
+	// 	 * JOIN_INNER semantics.
+	// 	 */
+	// 	hashjointuples = approx_tuple_count(root, &path->jpath, hashclauses);
+	// }
+
+	/*
+	 * For each tuple that gets through the hashjoin proper, we charge
+	 * cpu_tuple_cost plus the cost of evaluating additional restriction
+	 * clauses that are to be applied at the join.  (This is pessimistic since
+	 * not all of the quals may get evaluated at each tuple.)
+	 */
+	startup_cost += qp_qual_cost.startup;
+	cpu_per_tuple = cpu_tuple_cost + qp_qual_cost.per_tuple;
+	run_cost += cpu_per_tuple * hashjointuples;
+
+	/* tlist eval costs are paid per output row, not per tuple scanned */
+	startup_cost += path->jpath.path.pathtarget->cost.startup;
+	run_cost += path->jpath.path.pathtarget->cost.per_tuple * path->jpath.path.rows;
+
+	path->jpath.path.startup_cost = startup_cost;
+	path->jpath.path.total_cost = startup_cost + run_cost;
+}
+
+
 /*
  * cost_subplan
  *		Figure the costs for a SubPlan (or initplan).
@@ -3730,6 +4152,7 @@ cost_rescan(PlannerInfo *root, Path *path,
 			*rescan_total_cost = path->total_cost - path->startup_cost;
 			break;
 		case T_HashJoin:
+		case T_SymHashJoin:
 
 			/*
 			 * If it's a single-batch join, we don't need to rebuild the hash

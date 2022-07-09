@@ -2496,6 +2496,13 @@ typedef struct JoinCostWorkspace
 	int			numbuckets;
 	int			numbatches;
 	double		inner_rows_total;
+
+	/* private for cost_symhashjoin code */
+	int			outer_numbuckets;
+	int			outer_numbatches;
+	double		outer_rows_total;
+	int			inner_numbuckets;
+	int			inner_numbatches;
 } JoinCostWorkspace;
 
 #endif							/* PATHNODES_H */
