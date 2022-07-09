@@ -28,7 +28,4 @@ extern void ExecHashJoinReInitializeDSM(HashJoinState *state, ParallelContext *p
 extern void ExecHashJoinInitializeWorker(HashJoinState *state,
 										 ParallelWorkerContext *pwcxt);
 
-extern void ExecHashJoinSaveTuple(MinimalTuple tuple, uint32 hashvalue,
-								  BufFile **fileptr);
-
 #endif							/* NODEHASHJOIN_H */
