@@ -485,7 +485,7 @@ remove_rel_from_joinlist(List *joinlist, int relid, int *nremoved)
 		}
 		else
 		{
-			elog(ERROR, "unrecognized joinlist node type: %d",
+			elog(ERROR, "unrecognized joinlist node type(remove): %d",
 				 (int) nodeTag(jlnode));
 		}
 	}

@@ -2781,7 +2781,7 @@ make_rel_from_joinlist(PlannerInfo *root, List *joinlist)
 		}
 		else
 		{
-			elog(ERROR, "unrecognized joinlist node type: %d",
+			elog(ERROR, "unrecognized joinlist node type(make): %d",
 				 (int) nodeTag(jlnode));
 			thisrel = NULL;		/* keep compiler quiet */
 		}
@@ -3877,6 +3877,10 @@ print_path(PlannerInfo *root, Path *path, int indent)
 			break;
 		case T_HashPath:
 			ptype = "HashJoin";
+			join = true;
+			break;
+		case T_SymHashPath:
+			ptype = "SymHashJoin";
 			join = true;
 			break;
 		case T_AppendPath:

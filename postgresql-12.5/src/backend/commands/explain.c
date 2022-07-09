@@ -1125,6 +1125,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			pname = "Hash";		/* "Join" gets added by jointype switch */
 			sname = "Hash Join";
 			break;
+		case T_SymHashJoin:
+			pname = "SymHash";		/* "Join" gets added by jointype switch */
+			sname = "Sym Hash Join";
 		case T_SeqScan:
 			pname = sname = "Seq Scan";
 			break;
@@ -1395,6 +1398,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_NestLoop:
 		case T_MergeJoin:
 		case T_HashJoin:
+		case T_SymHashJoin:
 			{
 				const char *jointype;
 
@@ -1565,6 +1569,7 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_NestLoop:
 		case T_MergeJoin:
 		case T_HashJoin:
+		case T_SymHashJoin:
 			/* try not to be too chatty about this in text mode */
 			if (es->format != EXPLAIN_FORMAT_TEXT ||
 				(es->verbose && ((Join *) plan)->inner_unique))
@@ -1814,6 +1819,19 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_upper_qual(((HashJoin *) plan)->join.joinqual,
 							"Join Filter", planstate, ancestors, es);
 			if (((HashJoin *) plan)->join.joinqual)
+				show_instrumentation_count("Rows Removed by Join Filter", 1,
+										   planstate, es);
+			show_upper_qual(plan->qual, "Filter", planstate, ancestors, es);
+			if (plan->qual)
+				show_instrumentation_count("Rows Removed by Filter", 2,
+										   planstate, es);
+			break;
+		case T_SymHashJoin:
+			show_upper_qual(((SymHashJoin *) plan)->hashclauses,
+							"Hash Cond", planstate, ancestors, es);
+			show_upper_qual(((SymHashJoin *) plan)->join.joinqual,
+							"Join Filter", planstate, ancestors, es);
+			if (((SymHashJoin *) plan)->join.joinqual)
 				show_instrumentation_count("Rows Removed by Join Filter", 1,
 										   planstate, es);
 			show_upper_qual(plan->qual, "Filter", planstate, ancestors, es);

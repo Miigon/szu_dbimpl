@@ -1568,6 +1568,14 @@ typedef struct HashPath
 	double		inner_rows_total;	/* total inner rows expected */
 } HashPath;
 
+typedef struct SymHashPath
+{
+	JoinPath	jpath;
+	List	   *path_hashclauses;	/* join clauses used for hashing */
+	int			num_batches;	/* number of batches expected */
+	double		inner_rows_total;	/* total inner rows expected */
+} SymHashPath;
+
 /*
  * ProjectionPath represents a projection (that is, targetlist computation)
  *

@@ -774,6 +774,15 @@ GetExistingLocalJoinPath(RelOptInfo *joinrel)
 				}
 				break;
 
+			case T_SymHashJoin:
+				{
+					SymHashPath   *hash_path = makeNode(SymHashPath);
+
+					memcpy(hash_path, path, sizeof(SymHashPath));
+					joinpath = (JoinPath *) hash_path;
+				}
+				break;
+
 			case T_NestLoop:
 				{
 					NestPath   *nest_path = makeNode(NestPath);

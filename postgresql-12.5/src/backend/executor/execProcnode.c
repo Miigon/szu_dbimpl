@@ -301,6 +301,10 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 													estate, eflags);
 			break;
 
+		case T_SymHashJoin:
+			result = (PlanState *) ExecInitSymHashJoin((SymHashJoin *) node,
+													estate, eflags);
+			break;
 			/*
 			 * materialization nodes
 			 */

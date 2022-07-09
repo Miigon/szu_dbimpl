@@ -906,6 +906,31 @@ _copyHashJoin(const HashJoin *from)
 	return newnode;
 }
 
+/*
+ * _copySymHashJoin
+ */
+static SymHashJoin *
+_copySymHashJoin(const SymHashJoin *from)
+{
+	SymHashJoin   *newnode = makeNode(SymHashJoin);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyJoinFields((const Join *) from, (Join *) newnode);
+
+	/*
+	 * copy remainder of node
+	 */
+	COPY_NODE_FIELD(hashclauses);
+	COPY_NODE_FIELD(hashoperators);
+	COPY_NODE_FIELD(hashcollations);
+	COPY_NODE_FIELD(hashkeys);
+
+	return newnode;
+}
+
+
 
 /*
  * _copyMaterial
@@ -4897,6 +4922,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_HashJoin:
 			retval = _copyHashJoin(from);
+			break;
+		case T_SymHashJoin:
+			retval = _copySymHashJoin(from);
 			break;
 		case T_Material:
 			retval = _copyMaterial(from);

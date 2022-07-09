@@ -713,6 +713,15 @@ try_partial_mergejoin_path(PlannerInfo *root,
 										   innersortkeys));
 }
 
+static void
+try_symhashjoin_path(PlannerInfo *root,
+				  RelOptInfo *joinrel,
+				  Path *outer_path,
+				  Path *inner_path,
+				  List *hashclauses,
+				  JoinType jointype,
+				  JoinPathExtraData *extra);
+
 /*
  * try_hashjoin_path
  *	  Consider a hash join path; if it appears useful, push it into
@@ -729,6 +738,9 @@ try_hashjoin_path(PlannerInfo *root,
 {
 	Relids		required_outer;
 	JoinCostWorkspace workspace;
+
+	// ass3: also consider symmetric hash join whenever a hash join is being considered
+	try_symhashjoin_path(root, joinrel, outer_path, inner_path, hashclauses, jointype, extra);
 
 	/*
 	 * Check to see if proposed path is still parameterized, and reject if the
@@ -757,6 +769,68 @@ try_hashjoin_path(PlannerInfo *root,
 	{
 		add_path(joinrel, (Path *)
 				 create_hashjoin_path(root,
+									  joinrel,
+									  jointype,
+									  &workspace,
+									  extra,
+									  outer_path,
+									  inner_path,
+									  false,	/* parallel_hash */
+									  extra->restrictlist,
+									  required_outer,
+									  hashclauses));
+	}
+	else
+	{
+		/* Waste no memory when we reject a path here */
+		bms_free(required_outer);
+	}
+}
+
+/*
+ * try_symhashjoin_path
+ *	  Consider a symmetric hash join path; if it appears useful, push it into
+ *	  the joinrel's pathlist via add_path().
+ */
+static void
+try_symhashjoin_path(PlannerInfo *root,
+				  RelOptInfo *joinrel,
+				  Path *outer_path,
+				  Path *inner_path,
+				  List *hashclauses,
+				  JoinType jointype,
+				  JoinPathExtraData *extra)
+{
+	Relids		required_outer;
+	JoinCostWorkspace workspace;
+
+	/*
+	 * Check to see if proposed path is still parameterized, and reject if the
+	 * parameterization wouldn't be sensible.
+	 */
+	required_outer = calc_non_nestloop_required_outer(outer_path,
+													  inner_path);
+	if (required_outer &&
+		!bms_overlap(required_outer, extra->param_source_rels))
+	{
+		/* Waste no memory when we reject a path here */
+		bms_free(required_outer);
+		return;
+	}
+
+	/*
+	 * See comments in try_nestloop_path().  Also note that hashjoin paths
+	 * never have any output pathkeys, per comments in create_hashjoin_path.
+	 */
+	initial_cost_symhashjoin(root, &workspace, jointype, hashclauses,
+						  outer_path, inner_path, extra, false);
+
+	if (add_path_precheck(joinrel,
+						  workspace.startup_cost, workspace.total_cost,
+						  NIL, required_outer))
+	{
+		add_path(joinrel, (Path *)
+				 create_symhashjoin_path(root,
 									  joinrel,
 									  jointype,
 									  &workspace,

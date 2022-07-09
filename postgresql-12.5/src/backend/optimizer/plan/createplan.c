@@ -152,6 +152,7 @@ static CustomScan *create_customscan_plan(PlannerInfo *root,
 static NestLoop *create_nestloop_plan(PlannerInfo *root, NestPath *best_path);
 static MergeJoin *create_mergejoin_plan(PlannerInfo *root, MergePath *best_path);
 static HashJoin *create_hashjoin_plan(PlannerInfo *root, HashPath *best_path);
+static SymHashJoin *create_symhashjoin_plan(PlannerInfo *root, SymHashPath *best_path);
 static Node *replace_nestloop_params(PlannerInfo *root, Node *expr);
 static Node *replace_nestloop_params_mutator(Node *node, PlannerInfo *root);
 static void fix_indexqual_references(PlannerInfo *root, IndexPath *index_path,
@@ -220,6 +221,13 @@ static NestLoop *make_nestloop(List *tlist,
 							   Plan *lefttree, Plan *righttree,
 							   JoinType jointype, bool inner_unique);
 static HashJoin *make_hashjoin(List *tlist,
+							   List *joinclauses, List *otherclauses,
+							   List *hashclauses,
+							   List *hashoperators, List *hashcollations,
+							   List *hashkeys,
+							   Plan *lefttree, Plan *righttree,
+							   JoinType jointype, bool inner_unique);
+static SymHashJoin *make_symhashjoin(List *tlist,
 							   List *joinclauses, List *otherclauses,
 							   List *hashclauses,
 							   List *hashoperators, List *hashcollations,
@@ -388,6 +396,7 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = create_scan_plan(root, best_path, flags);
 			break;
 		case T_HashJoin:
+		case T_SymHashJoin:
 		case T_MergeJoin:
 		case T_NestLoop:
 			plan = create_join_plan(root,
@@ -1015,6 +1024,10 @@ create_join_plan(PlannerInfo *root, JoinPath *best_path)
 		case T_HashJoin:
 			plan = (Plan *) create_hashjoin_plan(root,
 												 (HashPath *) best_path);
+			break;
+		case T_SymHashJoin:
+			plan = (Plan *) create_symhashjoin_plan(root,
+												 (SymHashPath *) best_path);
 			break;
 		case T_NestLoop:
 			plan = (Plan *) create_nestloop_plan(root,
@@ -4548,6 +4561,146 @@ create_hashjoin_plan(PlannerInfo *root,
 	return join_plan;
 }
 
+static SymHashJoin *
+create_symhashjoin_plan(PlannerInfo *root,
+					HashPath *best_path)
+{
+	SymHashJoin   *join_plan;
+	Hash	   *outer_hash_plan;
+	Hash	   *inner_hash_plan;
+	Plan	   *outer_plan;
+	Plan	   *inner_plan;
+	List	   *tlist = build_path_tlist(root, &best_path->jpath.path);
+	List	   *joinclauses;
+	List	   *otherclauses;
+	List	   *hashclauses;
+	List	   *hashoperators = NIL;
+	List	   *hashcollations = NIL;
+	List	   *inner_hashkeys = NIL;
+	List	   *outer_hashkeys = NIL;
+	Oid			skewTable = InvalidOid;
+	AttrNumber	skewColumn = InvalidAttrNumber;
+	bool		skewInherit = false;
+	ListCell   *lc;
+
+	/*
+	 * HashJoin can project, so we don't have to demand exact tlists from the
+	 * inputs.  However, it's best to request a small tlist from the inner
+	 * side, so that we aren't storing more data than necessary.  Likewise, if
+	 * we anticipate batching, request a small tlist from the outer side so
+	 * that we don't put extra data in the outer batch files.
+	 */
+	outer_plan = create_plan_recurse(root, best_path->jpath.outerjoinpath,
+									 (best_path->num_batches > 1) ? CP_SMALL_TLIST : 0);
+
+	inner_plan = create_plan_recurse(root, best_path->jpath.innerjoinpath,
+									 CP_SMALL_TLIST);
+
+	/* Sort join qual clauses into best execution order */
+	joinclauses = order_qual_clauses(root, best_path->jpath.joinrestrictinfo);
+	/* There's no point in sorting the hash clauses ... */
+
+	/* Get the join qual clauses (in plain expression form) */
+	/* Any pseudoconstant clauses are ignored here */
+	if (IS_OUTER_JOIN(best_path->jpath.jointype))
+	{
+		extract_actual_join_clauses(joinclauses,
+									best_path->jpath.path.parent->relids,
+									&joinclauses, &otherclauses);
+	}
+	else
+	{
+		/* We can treat all clauses alike for an inner join */
+		joinclauses = extract_actual_clauses(joinclauses, false);
+		otherclauses = NIL;
+	}
+
+	/*
+	 * Remove the hashclauses from the list of join qual clauses, leaving the
+	 * list of quals that must be checked as qpquals.
+	 */
+	hashclauses = get_actual_clauses(best_path->path_hashclauses);
+	joinclauses = list_difference(joinclauses, hashclauses);
+
+	/*
+	 * Replace any outer-relation variables with nestloop params.  There
+	 * should not be any in the hashclauses.
+	 */
+	if (best_path->jpath.path.param_info)
+	{
+		joinclauses = (List *)
+			replace_nestloop_params(root, (Node *) joinclauses);
+		otherclauses = (List *)
+			replace_nestloop_params(root, (Node *) otherclauses);
+	}
+
+	/*
+	 * Rearrange hashclauses, if needed, so that the outer variable is always
+	 * on the left.
+	 */
+	hashclauses = get_switched_clauses(best_path->path_hashclauses,
+									   best_path->jpath.outerjoinpath->parent->relids);
+
+	/*
+	 * Collect hash related information. The hashed expressions are
+	 * deconstructed into outer/inner expressions, so they can be computed
+	 * separately (inner expressions are used to build the hashtable via Hash,
+	 * outer expressions to perform lookups of tuples from HashJoin's outer
+	 * plan in the hashtable). Also collect operator information necessary to
+	 * build the hashtable.
+	 */
+	foreach(lc, hashclauses)
+	{
+		OpExpr	   *hclause = lfirst_node(OpExpr, lc);
+
+		hashoperators = lappend_oid(hashoperators, hclause->opno);
+		hashcollations = lappend_oid(hashcollations, hclause->inputcollid);
+		outer_hashkeys = lappend(outer_hashkeys, linitial(hclause->args));
+		inner_hashkeys = lappend(inner_hashkeys, lsecond(hclause->args));
+	}
+
+	/*
+	 * Build the hash node and hash join node.
+	 */
+	inner_hash_plan = make_hash(inner_plan,
+						  inner_hashkeys,
+						  skewTable,
+						  skewColumn,
+						  skewInherit);
+	outer_hash_plan = make_hash(outer_plan,
+						  inner_hashkeys,
+						  skewTable,
+						  skewColumn,
+						  skewInherit);
+
+	/*
+	 * Set Hash node's startup & total costs equal to total cost of input
+	 * plan; this only affects EXPLAIN display not decisions.
+	 */
+	copy_plan_costsize(&inner_hash_plan->plan, inner_plan);
+	inner_hash_plan->plan.startup_cost = inner_hash_plan->plan.total_cost;
+
+	copy_plan_costsize(&outer_hash_plan->plan, outer_plan);
+	outer_hash_plan->plan.startup_cost = outer_hash_plan->plan.total_cost;
+
+	join_plan = make_symhashjoin(tlist,
+							  joinclauses,
+							  otherclauses,
+							  hashclauses,
+							  hashoperators,
+							  hashcollations,
+							  outer_hashkeys,
+							  (Plan *) outer_hash_plan,
+							  (Plan *) inner_hash_plan,
+							  best_path->jpath.jointype,
+							  best_path->jpath.inner_unique);
+
+	copy_generic_path_info(&join_plan->join.plan, &best_path->jpath.path);
+
+	return join_plan;
+}
+
+
 
 /*****************************************************************************
  *
@@ -5588,6 +5741,37 @@ make_hashjoin(List *tlist,
 			  bool inner_unique)
 {
 	HashJoin   *node = makeNode(HashJoin);
+	Plan	   *plan = &node->join.plan;
+
+	plan->targetlist = tlist;
+	plan->qual = otherclauses;
+	plan->lefttree = lefttree;
+	plan->righttree = righttree;
+	node->hashclauses = hashclauses;
+	node->hashoperators = hashoperators;
+	node->hashcollations = hashcollations;
+	node->hashkeys = hashkeys;
+	node->join.jointype = jointype;
+	node->join.inner_unique = inner_unique;
+	node->join.joinqual = joinclauses;
+
+	return node;
+}
+
+static SymHashJoin *
+make_symhashjoin(List *tlist,
+			  List *joinclauses,
+			  List *otherclauses,
+			  List *hashclauses,
+			  List *hashoperators,
+			  List *hashcollations,
+			  List *hashkeys,
+			  Plan *lefttree,
+			  Plan *righttree,
+			  JoinType jointype,
+			  bool inner_unique)
+{
+	SymHashJoin   *node = makeNode(SymHashJoin);
 	Plan	   *plan = &node->join.plan;
 
 	plan->targetlist = tlist;

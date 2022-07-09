@@ -635,6 +635,7 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 		case T_NestLoop:
 		case T_MergeJoin:
 		case T_HashJoin:
+		case T_SymHashJoin:
 			set_join_references(root, (Join *) plan, rtoffset);
 			break;
 
@@ -1781,6 +1782,27 @@ set_join_references(PlannerInfo *root, Join *join, int rtoffset)
 	else if (IsA(join, HashJoin))
 	{
 		HashJoin   *hj = (HashJoin *) join;
+
+		hj->hashclauses = fix_join_expr(root,
+										hj->hashclauses,
+										outer_itlist,
+										inner_itlist,
+										(Index) 0,
+										rtoffset);
+
+		/*
+		 * HashJoin's hashkeys are used to look for matching tuples from its
+		 * outer plan (not the Hash node!) in the hashtable.
+		 */
+		hj->hashkeys = (List *) fix_upper_expr(root,
+											   (Node *) hj->hashkeys,
+											   outer_itlist,
+											   OUTER_VAR,
+											   rtoffset);
+	}
+	else if (IsA(join, SymHashJoin))
+	{
+		SymHashJoin   *hj = (SymHashJoin *) join;
 
 		hj->hashclauses = fix_join_expr(root,
 										hj->hashclauses,

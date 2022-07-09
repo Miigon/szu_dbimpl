@@ -3759,7 +3759,7 @@ initial_cost_symhashjoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 }
 
 void
-final_cost_symhashjoin(PlannerInfo *root, HashPath *path,
+final_cost_symhashjoin(PlannerInfo *root, SymHashPath *path,
 					JoinCostWorkspace *workspace,
 					JoinPathExtraData *extra)
 {

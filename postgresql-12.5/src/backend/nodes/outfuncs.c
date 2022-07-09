@@ -767,6 +767,19 @@ _outHashJoin(StringInfo str, const HashJoin *node)
 }
 
 static void
+_outSymHashJoin(StringInfo str, const HashJoin *node)
+{
+	WRITE_NODE_TYPE("SYMHASHJOIN");
+
+	_outJoinPlanInfo(str, (const Join *) node);
+
+	WRITE_NODE_FIELD(hashclauses);
+	WRITE_NODE_FIELD(hashoperators);
+	WRITE_NODE_FIELD(hashcollations);
+	WRITE_NODE_FIELD(hashkeys);
+}
+
+static void
 _outAgg(StringInfo str, const Agg *node)
 {
 	WRITE_NODE_TYPE("AGG");
@@ -2149,6 +2162,18 @@ _outHashPath(StringInfo str, const HashPath *node)
 	WRITE_NODE_TYPE("HASHPATH");
 
 	_outJoinPathInfo(str, (const JoinPath *) node);
+
+	WRITE_NODE_FIELD(path_hashclauses);
+	WRITE_INT_FIELD(num_batches);
+	WRITE_FLOAT_FIELD(inner_rows_total, "%.0f");
+}
+
+static void
+_outSymHashPath(StringInfo str, const SymHashPath *node)
+{
+	WRITE_NODE_TYPE("SYMHASHPATH");
+
+	_outJoinPathInfo(str, (const SymJoinPath *) node);
 
 	WRITE_NODE_FIELD(path_hashclauses);
 	WRITE_INT_FIELD(num_batches);
@@ -3744,6 +3769,9 @@ outNode(StringInfo str, const void *obj)
 			case T_HashJoin:
 				_outHashJoin(str, obj);
 				break;
+			case T_SymHashJoin:
+				_outSymHashJoin(str, obj);
+				break;
 			case T_Agg:
 				_outAgg(str, obj);
 				break;
@@ -4046,6 +4074,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_HashPath:
 				_outHashPath(str, obj);
+				break;
+			case T_SymHashPath:
+				_outSymHashPath(str, obj);
 				break;
 			case T_PlannerGlobal:
 				_outPlannerGlobal(str, obj);

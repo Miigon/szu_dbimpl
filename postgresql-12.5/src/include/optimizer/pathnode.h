@@ -172,7 +172,7 @@ extern HashPath *create_hashjoin_path(PlannerInfo *root,
 									  Relids required_outer,
 									  List *hashclauses);
 
-extern HashPath *create_symhashjoin_path(PlannerInfo *root,
+extern SymHashPath *create_symhashjoin_path(PlannerInfo *root,
 									  RelOptInfo *joinrel,
 									  JoinType jointype,
 									  JoinCostWorkspace *workspace,

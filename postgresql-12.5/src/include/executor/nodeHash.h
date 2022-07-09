@@ -34,7 +34,7 @@ extern void ExecHashTableDetachBatch(HashJoinTable hashtable);
 extern void ExecParallelHashTableSetCurrentBatch(HashJoinTable hashtable,
 												 int batchno);
 
-extern void ExecHashTableInsert(HashJoinTable hashtable,
+extern HashJoinTuple ExecHashTableInsert(HashJoinTable hashtable,
 								TupleTableSlot *slot,
 								uint32 hashvalue);
 extern void ExecParallelHashTableInsert(HashJoinTable hashtable,
@@ -58,6 +58,9 @@ extern bool ExecParallelScanHashBucket(HashJoinState *hjstate, ExprContext *econ
 extern void ExecPrepHashTableForUnmatched(HashJoinState *hjstate);
 extern bool ExecScanHashTableForUnmatched(HashJoinState *hjstate,
 										  ExprContext *econtext);
+extern bool ExecScanHashTableForUnmatchedSymmetric(HashJoinState *hjstate, ExprContext *econtext, int sourceTable);
+extern bool ExecProbeInnerHashBucketWithOuterTuple(HashJoinState *hjstate, ExprContext *econtext);
+extern bool ExecProbeOuterHashBucketWithInnerTuple(HashJoinState *hjstate, ExprContext *econtext);
 extern void ExecHashTableReset(HashJoinTable hashtable);
 extern void ExecHashTableResetMatchFlags(HashJoinTable hashtable);
 extern void ExecChooseHashTableSize(double ntuples, int tupwidth, bool useskew,
@@ -75,5 +78,6 @@ extern void ExecHashRetrieveInstrumentation(HashState *node);
 extern void ExecShutdownHash(HashState *node);
 extern void ExecHashGetInstrumentation(HashInstrumentation *instrument,
 									   HashJoinTable hashtable);
-
+// #define ELOGDEBUG(...) elog(INFO, __VA_ARGS__)
+#define ELOGDEBUG(...)
 #endif							/* NODEHASH_H */
